@@ -17,7 +17,6 @@ func Tracing(tracer trace.Tracer) func(http.Handler) http.Handler {
 	if tracer == nil {
 		tracer = otel.GetTracerProvider().Tracer("trip-service")
 	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
@@ -34,10 +33,17 @@ func Tracing(tracer trace.Tracer) func(http.Handler) http.Handler {
 				),
 			)
 			defer span.End()
+			defer func() {
+				if rec := recover(); rec != nil {
+					span.SetStatus(codes.Error, fmt.Sprintf("panic: %v", rec))
+					span.RecordError(fmt.Errorf("panic: %v", rec), trace.WithStackTrace(true))
+					panic(rec)
+				}
+			}()
 
 			rw := newStatusResponseWriter(w)
-
-			next.ServeHTTP(rw, r.WithContext(ctx))
+			*r = *r.WithContext(ctx)
+			next.ServeHTTP(rw, r)
 
 			route := ""
 			if chiCtx := chi.RouteContext(r.Context()); chiCtx != nil {

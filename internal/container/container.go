@@ -75,7 +75,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	r.Use(middleware.Recover(logger))
 	r.Use(middleware.Tracing(tracer))
 	r.Use(middleware.Logging(logger))
-	r.Use(middleware.Metrics(metrics))
+	r.Use(middleware.Metrics(metrics, r))
 
 	apiHandler := api.HandlerWithOptions(server, api.ChiServerOptions{
 		BaseRouter:       r,

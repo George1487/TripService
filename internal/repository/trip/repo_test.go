@@ -154,12 +154,10 @@ func TestRepository_Transaction_Rollback_On_History_Error(t *testing.T) {
 	})
 
 	txErr := txManager.Do(ctx, func(txCtx context.Context) error {
-		// 1. Save trip inside transaction
 		if err := repo.Save(txCtx, newTrip); err != nil {
 			return err
 		}
 
-		// 2. Add transition with invalid to_status that fails CHECK constraint in PostgreSQL
 		invalidStatus := trip.Status("non_existent_invalid_status")
 		if err := repo.AddTransition(txCtx, tripID, nil, invalidStatus, nil); err != nil {
 			return err
@@ -170,12 +168,10 @@ func TestRepository_Transaction_Rollback_On_History_Error(t *testing.T) {
 
 	require.Error(t, txErr, "transaction should fail due to check constraint in trip_status_history")
 
-	// 3. Verify that the trip was rolled back and is NOT present in trips table
 	_, getErr := repo.GetTrip(ctx, tripID)
 	require.Error(t, getErr)
 	require.ErrorIs(t, getErr, trip.ErrTripNotFound)
 
-	// 4. Verify that trip_status_history has no records for this trip
 	var historyCount int
 	err := pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id = $1", tripID).Scan(&historyCount)
 	require.NoError(t, err)

@@ -29,9 +29,7 @@ func Init(ctx context.Context, cfg *config.Config) (func(context.Context) error,
 		return nil, fmt.Errorf("build otel resource: %w", err)
 	}
 
-	traceExporter, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(cfg.OTelExporterOTLPEndpoint),
-	)
+	traceExporter, err := otlptracehttp.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create otlp trace exporter: %w", err)
 	}
@@ -43,9 +41,7 @@ func Init(ctx context.Context, cfg *config.Config) (func(context.Context) error,
 	)
 	otel.SetTracerProvider(tp)
 
-	metricExporter, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithEndpointURL(cfg.OTelExporterOTLPEndpoint),
-	)
+	metricExporter, err := otlpmetrichttp.New(ctx)
 	if err != nil {
 		_ = tp.Shutdown(ctx)
 		return nil, fmt.Errorf("create otlp metric exporter: %w", err)

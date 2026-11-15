@@ -92,10 +92,8 @@ func TestHandler_Handle(t *testing.T) {
 		{
 			name: "invalid request body 400",
 			in: in{
-				body: `{"invalid": true}`,
-				setup: func(m mocks) {
-					// usecase should not be called
-				},
+				body:  `{"invalid": true}`,
+				setup: func(m mocks) {},
 			},
 			out: out{
 				assert: func(t *testing.T, rec *httptest.ResponseRecorder) {
