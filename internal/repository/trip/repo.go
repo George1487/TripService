@@ -16,14 +16,6 @@ func New(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func NewTripRepository(pool *pgxpool.Pool) *Repository {
-	return New(pool)
-}
-
-func NewTripHistoryRepository(pool *pgxpool.Pool) *Repository {
-	return New(pool)
-}
-
 func (r *Repository) executor(ctx context.Context) databaseExecutor {
 	if tx, ok := transaction.TxFromContext(ctx); ok {
 		return tx

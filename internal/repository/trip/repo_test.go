@@ -22,7 +22,7 @@ func getTestPool(t *testing.T) *pgxpool.Pool {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		// #nosec G101 -- default local dev postgres connection string for test environment
-		dbURL = "postgres://tripgo:tripgo@localhost:22032/tripgo?sslmode=disable"
+		dbURL = "postgres://tripgo:tripgo@localhost:23032/tripgo?sslmode=disable"
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -176,4 +176,95 @@ func TestRepository_Transaction_Rollback_On_History_Error(t *testing.T) {
 	err := pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id = $1", tripID).Scan(&historyCount)
 	require.NoError(t, err)
 	require.Equal(t, 0, historyCount)
+}
+
+func TestRepository_GetTripsSurvey(t *testing.T) {
+	pool := getTestPool(t)
+	repo := triprepo.New(pool)
+	ctx := context.Background()
+
+	now := time.Now().Truncate(time.Microsecond).UTC()
+	staleAfter := 60 * time.Second
+
+	// 1. Stale active trip without positions (started 120s ago) -> Should be returned
+	staleTripNoPositions := trip.Trip{
+		ID:         uuid.New(),
+		UserID:     uuid.New(),
+		DriverID:   uuid.New(),
+		StartPoint: trip.Coordinates{Latitude: 55.75, Longitude: 37.61},
+		EndPoint:   trip.Coordinates{Latitude: 55.76, Longitude: 37.62},
+		Price:      1000,
+		Status:     trip.StatusActive,
+		StartedAt:  now.Add(-120 * time.Second),
+	}
+
+	// 2. Stale active trip with old position (started 300s ago, last position 90s ago) -> Should be returned
+	lastPos := now.Add(-90 * time.Second)
+	staleTripWithPosition := trip.Trip{
+		ID:             uuid.New(),
+		UserID:         uuid.New(),
+		DriverID:       uuid.New(),
+		StartPoint:     trip.Coordinates{Latitude: 55.75, Longitude: 37.61},
+		EndPoint:       trip.Coordinates{Latitude: 55.76, Longitude: 37.62},
+		Price:          1000,
+		Status:         trip.StatusActive,
+		StartedAt:      now.Add(-300 * time.Second),
+		LastPositionAt: &lastPos,
+	}
+
+	// 3. Fresh active trip (started 300s ago, last position 10s ago) -> Should NOT be returned
+	freshPos := now.Add(-10 * time.Second)
+	freshTrip := trip.Trip{
+		ID:             uuid.New(),
+		UserID:         uuid.New(),
+		DriverID:       uuid.New(),
+		StartPoint:     trip.Coordinates{Latitude: 55.75, Longitude: 37.61},
+		EndPoint:       trip.Coordinates{Latitude: 55.76, Longitude: 37.62},
+		Price:          1000,
+		Status:         trip.StatusActive,
+		StartedAt:      now.Add(-300 * time.Second),
+		LastPositionAt: &freshPos,
+	}
+
+	// 4. Completed trip (started 300s ago, finished 100s ago) -> Should NOT be returned
+	finishedAt := now.Add(-100 * time.Second)
+	completedTrip := trip.Trip{
+		ID:         uuid.New(),
+		UserID:     uuid.New(),
+		DriverID:   uuid.New(),
+		StartPoint: trip.Coordinates{Latitude: 55.75, Longitude: 37.61},
+		EndPoint:   trip.Coordinates{Latitude: 55.76, Longitude: 37.62},
+		Price:      1000,
+		Status:     trip.StatusCompleted,
+		StartedAt:  now.Add(-300 * time.Second),
+		FinishedAt: &finishedAt,
+	}
+
+	for _, tr := range []trip.Trip{staleTripNoPositions, staleTripWithPosition, freshTrip, completedTrip} {
+		err := repo.Save(ctx, tr)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = pool.Exec(context.Background(), "DELETE FROM trips WHERE id = $1", tr.ID)
+		})
+	}
+
+	trips, err := repo.GetTripsSurvey(ctx, staleAfter, 100, time.Unix(0, 0), uuid.Nil)
+	require.NoError(t, err)
+
+	tripMap := make(map[uuid.UUID]trip.Trip)
+	for _, tr := range trips {
+		tripMap[tr.ID] = tr
+	}
+
+	_, hasStale1 := tripMap[staleTripNoPositions.ID]
+	require.True(t, hasStale1, "stale trip without positions must be returned")
+
+	_, hasStale2 := tripMap[staleTripWithPosition.ID]
+	require.True(t, hasStale2, "stale trip with old position must be returned")
+
+	_, hasFresh := tripMap[freshTrip.ID]
+	require.False(t, hasFresh, "fresh trip must NOT be returned")
+
+	_, hasCompleted := tripMap[completedTrip.ID]
+	require.False(t, hasCompleted, "completed trip must NOT be returned")
 }

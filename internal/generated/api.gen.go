@@ -66,6 +66,15 @@ type HealthResponse struct {
 // HealthResponseStatus defines model for HealthResponse.Status.
 type HealthResponseStatus string
 
+// PositionData defines model for PositionData.
+type PositionData struct {
+	// Coordinates Географические координаты WGS 84.
+	Coordinates Coordinates `json:"coordinates"`
+
+	// RecordedAt Время фиксации координаты на мобильном устройстве.
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
 // Problem Problem Details for HTTP APIs (RFC 9457) с дополнительным полем code.
 type Problem struct {
 	Code     string  `json:"code"`
@@ -115,6 +124,22 @@ type TripData struct {
 	UserId     openapi_types.UUID `json:"user_id"`
 }
 
+// TripPosition defines model for TripPosition.
+type TripPosition struct {
+	// Coordinates Географические координаты WGS 84.
+	Coordinates Coordinates `json:"coordinates"`
+	Id          int64       `json:"id"`
+
+	// RecordedAt Время фиксации координаты на мобильном устройстве.
+	RecordedAt time.Time          `json:"recorded_at"`
+	TripId     openapi_types.UUID `json:"trip_id"`
+}
+
+// TripPositionsResponse defines model for TripPositionsResponse.
+type TripPositionsResponse struct {
+	Positions []TripPosition `json:"positions"`
+}
+
 // TripStatus defines model for TripStatus.
 type TripStatus string
 
@@ -148,6 +173,9 @@ type CreateTripParams struct {
 // CreateTripJSONRequestBody defines body for CreateTrip for application/json ContentType.
 type CreateTripJSONRequestBody = TripData
 
+// SaveTripPositionJSONRequestBody defines body for SaveTripPosition for application/json ContentType.
+type SaveTripPositionJSONRequestBody = PositionData
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// CreateTrip Создать поездку
@@ -159,6 +187,12 @@ type ServerInterface interface {
 	// FinishTrip Завершить поездку
 	// (POST /api/v1/trips/{tripId}/finish)
 	FinishTrip(w http.ResponseWriter, r *http.Request, tripId TripId)
+	// GetTripPositions Получить маршрут поездки
+	// (GET /api/v1/trips/{tripId}/positions)
+	GetTripPositions(w http.ResponseWriter, r *http.Request, tripId TripId)
+	// SaveTripPosition Сохранить координату поездки
+	// (POST /api/v1/trips/{tripId}/positions)
+	SaveTripPosition(w http.ResponseWriter, r *http.Request, tripId TripId)
 	// Health Liveness
 	// (GET /health)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -186,6 +220,18 @@ func (_ Unimplemented) GetTrip(w http.ResponseWriter, r *http.Request, tripId Tr
 // FinishTrip Завершить поездку
 // (POST /api/v1/trips/{tripId}/finish)
 func (_ Unimplemented) FinishTrip(w http.ResponseWriter, r *http.Request, tripId TripId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetTripPositions Получить маршрут поездки
+// (GET /api/v1/trips/{tripId}/positions)
+func (_ Unimplemented) GetTripPositions(w http.ResponseWriter, r *http.Request, tripId TripId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// SaveTripPosition Сохранить координату поездки
+// (POST /api/v1/trips/{tripId}/positions)
+func (_ Unimplemented) SaveTripPosition(w http.ResponseWriter, r *http.Request, tripId TripId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -294,6 +340,58 @@ func (siw *ServerInterfaceWrapper) FinishTrip(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.FinishTrip(w, r, tripId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTripPositions operation middleware
+func (siw *ServerInterfaceWrapper) GetTripPositions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tripId" -------------
+	var tripId TripId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tripId", chi.URLParam(r, "tripId"), &tripId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tripId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTripPositions(w, r, tripId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveTripPosition operation middleware
+func (siw *ServerInterfaceWrapper) SaveTripPosition(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tripId" -------------
+	var tripId TripId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tripId", chi.URLParam(r, "tripId"), &tripId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tripId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveTripPosition(w, r, tripId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -452,6 +550,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/trips/{tripId}/finish", wrapper.FinishTrip)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/trips/{tripId}/positions", wrapper.GetTripPositions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/trips/{tripId}/positions", wrapper.SaveTripPosition)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/health", wrapper.Health)

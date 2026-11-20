@@ -22,6 +22,7 @@ func scanTrip(row scannable) (trip.Trip, error) {
 		&t.Status,
 		&t.StartedAt,
 		&t.FinishedAt,
+		&t.LastPositionAt,
 	)
 	return t, err
 }

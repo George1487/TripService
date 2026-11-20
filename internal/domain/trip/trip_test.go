@@ -11,6 +11,7 @@ import (
 )
 
 func TestTrip_Finish(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		trip trip.Trip
 		at   time.Time
@@ -73,6 +74,7 @@ func TestTrip_Finish(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			currentTrip := tt.in.trip
 			err := currentTrip.Finish(tt.in.at)
 			tt.out.assert(t, currentTrip, err)
@@ -81,6 +83,7 @@ func TestTrip_Finish(t *testing.T) {
 }
 
 func TestValidationError_Error(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err trip.ValidationError
 	}
@@ -127,6 +130,7 @@ func TestValidationError_Error(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := tt.in.err.Error()
 			tt.out.assert(t, got)
 		})

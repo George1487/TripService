@@ -6,32 +6,44 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jonboulle/clockwork"
 	"go.opentelemetry.io/otel"
 
 	"github.com/George1487/MalyginGeorge/internal/config"
+	"github.com/George1487/MalyginGeorge/internal/gateway/push"
 	api "github.com/George1487/MalyginGeorge/internal/generated"
 	internalHttp "github.com/George1487/MalyginGeorge/internal/http"
-	httpCreate "github.com/George1487/MalyginGeorge/internal/http/create"
-	httpFinish "github.com/George1487/MalyginGeorge/internal/http/finish"
-	httpGet "github.com/George1487/MalyginGeorge/internal/http/get"
 	"github.com/George1487/MalyginGeorge/internal/http/middleware"
+	tripHttpCreate "github.com/George1487/MalyginGeorge/internal/http/trip/create"
+	tripHttpFinish "github.com/George1487/MalyginGeorge/internal/http/trip/finish"
+	tripHttpGet "github.com/George1487/MalyginGeorge/internal/http/trip/get"
+	positionHttpCreate "github.com/George1487/MalyginGeorge/internal/http/trip/position/create"
+	positionHttpGet "github.com/George1487/MalyginGeorge/internal/http/trip/position/get"
 	"github.com/George1487/MalyginGeorge/internal/infra/postgres"
 	"github.com/George1487/MalyginGeorge/internal/infra/postgres/transaction"
 	"github.com/George1487/MalyginGeorge/internal/infra/telemetry"
 	"github.com/George1487/MalyginGeorge/internal/repository/idempotency"
 	repoTrip "github.com/George1487/MalyginGeorge/internal/repository/trip"
-	usecaseCreate "github.com/George1487/MalyginGeorge/internal/usecase/create"
-	usecaseFinish "github.com/George1487/MalyginGeorge/internal/usecase/finish"
-	usecaseGet "github.com/George1487/MalyginGeorge/internal/usecase/get"
+	repoPosition "github.com/George1487/MalyginGeorge/internal/repository/trip/position"
+	tripUsecaseCreate "github.com/George1487/MalyginGeorge/internal/usecase/trip/create"
+	tripUsecaseFinish "github.com/George1487/MalyginGeorge/internal/usecase/trip/finish"
+	tripUsecaseGet "github.com/George1487/MalyginGeorge/internal/usecase/trip/get"
+	positionUsecaseCreate "github.com/George1487/MalyginGeorge/internal/usecase/trip/position/create"
+	positionUsecaseGet "github.com/George1487/MalyginGeorge/internal/usecase/trip/position/get"
+	"github.com/George1487/MalyginGeorge/internal/worker/positions"
 )
 
 type Container struct {
 	HTTPServer *http.Server
 	Pool       *pgxpool.Pool
 	Logger     *slog.Logger
+	Scaner     *positions.Scaner
+	WorkerPool *positions.WorkerPool
+	Queue      *positions.Queue
 	Shutdown   func(ctx context.Context) error
 }
 
@@ -57,17 +69,26 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 
 	txManager := transaction.NewPgxTxManager(pool)
 	tripRepo := repoTrip.New(pool)
+	positionRepo := repoPosition.New(pool)
 	idempotencyStore := idempotency.NewStore(pool)
 
-	usecaseCreateInstance := usecaseCreate.New(tripRepo, tripRepo, txManager, metrics)
-	usecaseGetInstance := usecaseGet.New(tripRepo)
-	usecaseFinishInstance := usecaseFinish.New(tripRepo, tripRepo, txManager, metrics)
+	queueMu := &sync.Mutex{}
+	queue := positions.NewQueue(cfg.PositionQueueSize, queueMu)
+	queue.SetObservability(metrics, logger)
 
-	handlerCreate := httpCreate.New(usecaseCreateInstance)
-	handlerGet := httpGet.New(usecaseGetInstance)
-	handlerFinish := httpFinish.New(usecaseFinishInstance)
+	usecaseCreateInstance := tripUsecaseCreate.New(tripRepo, tripRepo, txManager, metrics)
+	usecaseGetInstance := tripUsecaseGet.New(tripRepo)
+	usecaseFinishInstance := tripUsecaseFinish.New(tripRepo, tripRepo, txManager, metrics)
+	usecasePositionCreateInstance := positionUsecaseCreate.New(tripRepo, positionRepo, txManager, metrics, queue)
+	usecasePositionGetInstance := positionUsecaseGet.NewUsecase(positionRepo, txManager, tripRepo)
 
-	server := internalHttp.NewServer(handlerCreate, handlerGet, handlerFinish, pool)
+	handlerCreate := tripHttpCreate.New(usecaseCreateInstance)
+	handlerGet := tripHttpGet.New(usecaseGetInstance)
+	handlerFinish := tripHttpFinish.New(usecaseFinishInstance)
+	handlerPositionGet := positionHttpGet.New(usecasePositionGetInstance)
+	handlerPositionCreate := positionHttpCreate.New(usecasePositionCreateInstance)
+
+	server := internalHttp.NewServer(handlerCreate, handlerGet, handlerFinish, pool, handlerPositionGet, handlerPositionCreate)
 
 	r := chi.NewRouter()
 	tracer := otel.GetTracerProvider().Tracer(cfg.OTelServiceName)
@@ -95,13 +116,26 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		IdleTimeout:       cfg.ShutdownTimeout,
 	}
 
+	pushGateway := push.New(cfg.PushHTTPURL, cfg.PushRequestTimeout)
+	workerPool := positions.NewWorkerPool(pushGateway, queue, queueMu, metrics, logger)
+
+	clock := clockwork.NewRealClock()
+	scanTicker := clock.NewTicker(cfg.PositionCheckInterval)
+	scaner := positions.New(tripRepo, scanTicker, metrics, logger, queue)
+
+	var shutdownOnce sync.Once
 	shutdown := func(shutdownCtx context.Context) error {
 		var errs []error
-		if shutdownOTel != nil {
-			if err := shutdownOTel(shutdownCtx); err != nil {
-				errs = append(errs, err)
+		shutdownOnce.Do(func() {
+			if shutdownOTel != nil {
+				if err := shutdownOTel(shutdownCtx); err != nil {
+					errs = append(errs, err)
+				}
 			}
-		}
+			if pool != nil {
+				pool.Close()
+			}
+		})
 		return errors.Join(errs...)
 	}
 
@@ -109,6 +143,9 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		HTTPServer: httpServer,
 		Pool:       pool,
 		Logger:     logger,
+		Scaner:     scaner,
+		WorkerPool: workerPool,
+		Queue:      queue,
 		Shutdown:   shutdown,
 	}, nil
 }

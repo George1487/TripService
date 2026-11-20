@@ -7,10 +7,12 @@ import (
 
 	"github.com/George1487/MalyginGeorge/internal/domain/trip"
 	api "github.com/George1487/MalyginGeorge/internal/generated"
-	"github.com/George1487/MalyginGeorge/internal/http/create"
 	"github.com/George1487/MalyginGeorge/internal/http/domainerror"
-	"github.com/George1487/MalyginGeorge/internal/http/finish"
-	"github.com/George1487/MalyginGeorge/internal/http/get"
+	tripCreate "github.com/George1487/MalyginGeorge/internal/http/trip/create"
+	tripFinish "github.com/George1487/MalyginGeorge/internal/http/trip/finish"
+	tripGet "github.com/George1487/MalyginGeorge/internal/http/trip/get"
+	posCreate "github.com/George1487/MalyginGeorge/internal/http/trip/position/create"
+	posGet "github.com/George1487/MalyginGeorge/internal/http/trip/position/get"
 )
 
 type readinessChecker interface {
@@ -18,28 +20,34 @@ type readinessChecker interface {
 }
 
 type Server struct {
-	createHandler *create.Handler
-	getHandler    *get.Handler
-	finishHandler *finish.Handler
-	checker       readinessChecker
+	createHandler             *tripCreate.Handler
+	getHandler                *tripGet.Handler
+	finishHandler             *tripFinish.Handler
+	checker                   readinessChecker
+	getPositionHandler        *posGet.Handler
+	createPositionDataHandler *posCreate.Handler
 }
 
 func NewServer(
-	createHandler *create.Handler,
-	getHandler *get.Handler,
-	finishHandler *finish.Handler,
+	createHandler *tripCreate.Handler,
+	getHandler *tripGet.Handler,
+	finishHandler *tripFinish.Handler,
 	checker readinessChecker,
+	getPositionHandler *posGet.Handler,
+	createPositionDataHandler *posCreate.Handler,
 ) *Server {
 	return &Server{
-		createHandler: createHandler,
-		getHandler:    getHandler,
-		finishHandler: finishHandler,
-		checker:       checker,
+		createHandler:             createHandler,
+		getHandler:                getHandler,
+		finishHandler:             finishHandler,
+		checker:                   checker,
+		getPositionHandler:        getPositionHandler,
+		createPositionDataHandler: createPositionDataHandler,
 	}
 }
 
-func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
-	s.createHandler.Handle(w, r, params)
+func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, _ api.CreateTripParams) {
+	s.createHandler.Handle(w, r)
 }
 
 func (s *Server) GetTrip(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
@@ -48,6 +56,14 @@ func (s *Server) GetTrip(w http.ResponseWriter, r *http.Request, tripID api.Trip
 
 func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
 	s.finishHandler.Handle(w, r, tripID)
+}
+
+func (s *Server) GetTripPositions(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	s.getPositionHandler.Handle(w, r, tripID)
+}
+
+func (s *Server) SaveTripPosition(w http.ResponseWriter, r *http.Request, tripID api.TripId) {
+	s.createPositionDataHandler.Handle(w, r, tripID)
 }
 
 func (s *Server) Health(w http.ResponseWriter, _ *http.Request) {

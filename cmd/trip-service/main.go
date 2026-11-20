@@ -44,9 +44,24 @@ func run() error {
 			defer cancel()
 			_ = c.Shutdown(shutdownCtx)
 		}
-		if c.Pool != nil {
-			c.Pool.Close()
-		}
+	}()
+
+	scannerCtx, scannerCancel := context.WithCancel(context.Background())
+	defer scannerCancel()
+
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	defer workerCancel()
+
+	c.WorkerPool.Start(cfg.PositionWorkers, workerCtx, cfg.PushRequestTimeout)
+
+	scannerErr := make(chan error, 1)
+	go func() {
+		c.Logger.Info("starting positions scanner",
+			"interval", cfg.PositionCheckInterval,
+			"stale_after", cfg.PositionStaleAfter,
+			"batch_size", cfg.PositionScanBatchSize,
+		)
+		scannerErr <- c.Scaner.Run(scannerCtx, cfg.PositionCheckInterval, cfg.PositionStaleAfter, cfg.PositionScanBatchSize)
 	}()
 
 	serverErr := make(chan error, 1)
@@ -61,13 +76,24 @@ func run() error {
 			return nil
 		}
 		return fmt.Errorf("serve HTTP: %w", err)
+	case err = <-scannerErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return fmt.Errorf("positions scanner: %w", err)
+		}
+		return nil
 	case <-appCtx.Done():
 	}
 
-	c.Logger.Info("shutting down HTTP server")
+	// Graceful Shutdown (порядок по п. 5.7 ТЗ):
+	// 1. HTTP-сервер перестаёт принимать запросы и дожидается текущих;
+	// 2. сканер останавливается — новые задачи не появляются;
+	// 3. воркеры дорабатывают то, что уже в очереди, в пределах общего SHUTDOWN_TIMEOUT;
+	// 4. закрываются HTTP-клиент и пул БД.
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
 
+	// Шаг 1: Остановка HTTP-сервера
+	c.Logger.Info("1. shutting down HTTP server")
 	if err = c.HTTPServer.Shutdown(shutdownCtx); err != nil {
 		closeErr := c.HTTPServer.Close()
 		if closeErr != nil {
@@ -79,8 +105,34 @@ func run() error {
 		return fmt.Errorf("shutdown HTTP server: %w", err)
 	}
 
-	if err = <-serverErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("serve HTTP during shutdown: %w", err)
+	// Шаг 2: Остановка сканера
+	c.Logger.Info("2. stopping positions scanner")
+	scannerCancel()
+	<-scannerErr
+
+	// Шаг 3: Воркеры дорабатывают то, что уже в очереди, в пределах SHUTDOWN_TIMEOUT
+	c.Logger.Info("3. waiting for worker pool to drain queue")
+	workersDone := make(chan struct{})
+	go func() {
+		c.WorkerPool.Wait()
+		close(workersDone)
+	}()
+
+	select {
+	case <-workersDone:
+		c.Logger.Info("all workers finished remaining tasks")
+	case <-shutdownCtx.Done():
+		c.Logger.Warn("shutdown timeout reached, cancelling worker tasks")
+		workerCancel()
+		<-workersDone
+	}
+
+	// Шаг 4: Закрытие БД и телеметрии
+	c.Logger.Info("4. closing storage and telemetry")
+	if c.Shutdown != nil {
+		if err := c.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown resources: %w", err)
+		}
 	}
 
 	return nil

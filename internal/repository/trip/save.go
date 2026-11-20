@@ -26,6 +26,7 @@ func (r *Repository) Save(ctx context.Context, t trip.Trip) error {
 			"status",
 			"started_at",
 			"finished_at",
+			"last_position_at",
 		).
 		Values(
 			t.ID,
@@ -39,6 +40,7 @@ func (r *Repository) Save(ctx context.Context, t trip.Trip) error {
 			t.Status,
 			t.StartedAt,
 			t.FinishedAt,
+			t.LastPositionAt,
 		).
 		PlaceholderFormat(sq.Dollar).
 		ToSql()
@@ -74,6 +76,7 @@ func (r *Repository) Update(ctx context.Context, t trip.Trip) error {
 		Set("status", t.Status).
 		Set("started_at", t.StartedAt).
 		Set("finished_at", t.FinishedAt).
+		Set("last_position_at", t.LastPositionAt).
 		Set("updated_at", sq.Expr("now()")).
 		Where(sq.Eq{"id": t.ID}).
 		PlaceholderFormat(sq.Dollar).

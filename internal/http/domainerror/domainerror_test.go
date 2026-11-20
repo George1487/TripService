@@ -15,6 +15,7 @@ import (
 )
 
 func TestProblem(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -127,6 +128,7 @@ func TestProblem(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p := domainerror.Problem(tt.in.err)
 			tt.out.assert(t, status, p)
 		})
@@ -134,6 +136,7 @@ func TestProblem(t *testing.T) {
 }
 
 func TestWrite(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -170,6 +173,7 @@ func TestWrite(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			rec := httptest.NewRecorder()
 			domainerror.Write(rec, tt.in.err)
 			tt.out.assert(t, rec)

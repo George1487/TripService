@@ -15,6 +15,7 @@ import (
 const unmatchedErrorCase = "unmatched error"
 
 func TestValidationStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -74,6 +75,7 @@ func TestValidationStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
@@ -81,6 +83,7 @@ func TestValidationStrategy_Handle(t *testing.T) {
 }
 
 func TestNotFoundStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -125,6 +128,7 @@ func TestNotFoundStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
@@ -132,6 +136,7 @@ func TestNotFoundStrategy_Handle(t *testing.T) {
 }
 
 func TestCompletedStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -176,6 +181,7 @@ func TestCompletedStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
@@ -183,6 +189,7 @@ func TestCompletedStrategy_Handle(t *testing.T) {
 }
 
 func TestDriverBusyStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -227,6 +234,7 @@ func TestDriverBusyStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
@@ -234,6 +242,7 @@ func TestDriverBusyStrategy_Handle(t *testing.T) {
 }
 
 func TestIdempotencyStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -278,6 +287,7 @@ func TestIdempotencyStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
@@ -285,6 +295,7 @@ func TestIdempotencyStrategy_Handle(t *testing.T) {
 }
 
 func TestInternalStrategy_Handle(t *testing.T) {
+	t.Parallel()
 	type in struct {
 		err error
 	}
@@ -318,6 +329,7 @@ func TestInternalStrategy_Handle(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			status, p, ok := strat.Handle(tt.in.err)
 			tt.out.assert(t, status, p, ok)
 		})
